@@ -46,6 +46,36 @@ def _session_id() -> str:
     )
 
 
+def _diagonal_watermark(img: Image.Image, text: str, alpha: int = 18) -> Image.Image:
+    """Tile `text` diagonally across the entire image at near-invisible opacity."""
+    base = img.convert("RGBA")
+    w, h = base.size
+
+    # Large enough canvas that rotation doesn't clip any corner
+    diag = int((w * w + h * h) ** 0.5) + 20
+
+    overlay = Image.new("RGBA", (diag, diag), (0, 0, 0, 0))
+    draw    = ImageDraw.Draw(overlay)
+    font    = _font(11)
+
+    step_x, step_y = 210, 52
+    for row_y in range(0, diag, step_y):
+        # Offset alternating rows so the grid doesn't look too regular
+        offset = (step_x // 2) if (row_y // step_y) % 2 else 0
+        for row_x in range(-step_x + offset, diag + step_x, step_x):
+            draw.text((row_x, row_y), text, font=font, fill=(200, 200, 200, alpha))
+
+    overlay = overlay.rotate(32)
+
+    # Crop back to original dimensions, centred
+    cx = (diag - w) // 2
+    cy = (diag - h) // 2
+    overlay = overlay.crop((cx, cy, cx + w, cy + h))
+
+    base = Image.alpha_composite(base, overlay)
+    return base.convert("RGB")
+
+
 def build_message_image(
     content: str,
     author_name: str,
@@ -103,6 +133,10 @@ def build_message_image(
     draw.text((PAD, y), f"Time: {timestamp} UTC", font=f_small, fill=_MARK)
     y += 18
     draw.text((PAD, y), f"Session: {session_id}", font=f_small, fill=_MARK)
+
+    # Diagonal repeating watermark embedded across the whole image.
+    # Barely visible at normal brightness; survives cropping the footer.
+    img = _diagonal_watermark(img, text=f"{viewer_id}  •  {session_id}")
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")

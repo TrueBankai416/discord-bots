@@ -135,7 +135,10 @@ def build_message_image(
     f_small = _font(12)
     f_emoji = _emoji_font(14)
 
-    lines = textwrap.wrap(content, width=WRAP) or ["(empty message)"]
+    # If no emoji font is available, convert emoji to :shortcode: so they
+    # aren't rendered as boxes by the main font.
+    display_content = content if f_emoji else emoji_lib.demojize(content, delimiters=(":", ":"))
+    lines = textwrap.wrap(display_content, width=WRAP) or ["(empty message)"]
 
     header_h = PAD + 24 + PAD // 2
     meta_h   = 20 + 8

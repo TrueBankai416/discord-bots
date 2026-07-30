@@ -46,6 +46,17 @@ async def initialize():
             )
         """)
 
+        # Migrate views table: add columns that may not exist in older databases.
+        for col, definition in [
+            ("username",   "TEXT"),
+            ("nickname",   "TEXT"),
+            ("session_id", "TEXT"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE views ADD COLUMN {col} {definition}")
+            except Exception:
+                pass  # column already exists
+
         await db.commit()
 
 

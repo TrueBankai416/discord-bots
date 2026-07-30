@@ -324,6 +324,31 @@ async def get_user_history(viewer_id: int) -> list[dict]:
         return [dict(row) for row in await cursor.fetchall()]
 
 
+async def get_recent_messages(channel_id: int, limit: int = 10) -> list[dict]:
+    async with aiosqlite.connect(DATABASE) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute(
+            """
+            SELECT id, author_id, created_at, message_json
+            FROM messages
+            WHERE channel_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (channel_id, limit),
+        )
+
+        rows = await cursor.fetchall()
+
+    result = []
+    for row in rows:
+        entry = dict(row)
+        entry["message_json"] = json.loads(entry["message_json"])
+        result.append(entry)
+    return result
+
+
 async def purge_old_records(days: int) -> int:
     from datetime import timedelta
 

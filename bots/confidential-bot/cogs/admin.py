@@ -366,6 +366,43 @@ class Admin(commands.Cog):
             ephemeral=True
         )
 
+    @app_commands.command(
+        name="recent",
+        description="Show the 10 most recent confidential messages in this channel."
+    )
+    async def recent(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        rows = await database.get_recent_messages(interaction.channel_id, limit=10)
+
+        if not rows:
+            await interaction.followup.send(
+                "No confidential messages found in this channel.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="🔒 Recent Confidential Messages",
+            description=f"Last {len(rows)} message(s) in this channel.",
+            color=discord.Color.gold(),
+        )
+
+        for row in rows:
+            data        = row["message_json"]
+            author_name = data.get("author_name", f"User {row['author_id']}")
+            created_at  = row["created_at"][:16].replace("T", " ")
+            preview     = data.get("content", "")[:60]
+            if len(data.get("content", "")) > 60:
+                preview += "…"
+            embed.add_field(
+                name=f"#{row['id']}  ·  {author_name}  ·  {created_at}",
+                value=preview or "*(no text preview)*",
+                inline=False,
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))

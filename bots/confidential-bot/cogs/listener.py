@@ -54,9 +54,13 @@ class Listener(commands.Cog):
         reply_to_message_id: int | None = None
         reply_to_content: str | None = None
         if message.reference and message.reference.message_id:
-            replied_row = await database.get_message_by_placeholder(
-                message.reference.message_id
-            )
+            try:
+                replied_row = await database.get_message_by_placeholder(
+                    message.reference.message_id
+                )
+            except Exception as e:
+                print(f"[reply-lookup] DB error for ref {message.reference.message_id}: {e}")
+                replied_row = None
             if replied_row:
                 reply_to_author_id = replied_row["author_id"]
                 reply_member = message.guild.get_member(reply_to_author_id)

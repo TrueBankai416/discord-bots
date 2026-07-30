@@ -57,6 +57,10 @@ async def initialize():
                 used_at TEXT NOT NULL
             )
         """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_recent_command_log_channel_used_at "
+            "ON recent_command_log(channel_id, used_at)"
+        )
 
         # Migrate views table: add columns that may not exist in older databases.
         for col, definition in [

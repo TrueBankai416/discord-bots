@@ -461,6 +461,7 @@ class Admin(commands.Cog):
                 ephemeral=True,
             )
 
+    @app_commands.guild_only()
     @app_commands.command(
         name="announce",
         description="Post a public message in this protected channel (not intercepted)."

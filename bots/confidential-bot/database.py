@@ -46,6 +46,22 @@ async def initialize():
             )
         """)
 
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS recent_command_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                viewer_id INTEGER NOT NULL,
+                username TEXT,
+                nickname TEXT,
+                used_at TEXT NOT NULL
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_recent_command_log_channel_used_at "
+            "ON recent_command_log(channel_id, used_at)"
+        )
+
         # Migrate views table: add columns that may not exist in older databases.
         for col, definition in [
             ("username",   "TEXT"),
@@ -322,6 +338,68 @@ async def get_user_history(viewer_id: int) -> list[dict]:
         )
 
         return [dict(row) for row in await cursor.fetchall()]
+
+
+async def log_recent_access(
+    guild_id: int,
+    channel_id: int,
+    viewer_id: int,
+    username: str,
+    nickname: str,
+) -> None:
+    async with aiosqlite.connect(DATABASE) as db:
+        await db.execute(
+            """
+            INSERT INTO recent_command_log
+                (guild_id, channel_id, viewer_id, username, nickname, used_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (guild_id, channel_id, viewer_id, username, nickname,
+             datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+
+
+async def get_recent_access_log(channel_id: int, limit: int = 50) -> list[dict]:
+    async with aiosqlite.connect(DATABASE) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT viewer_id, username, nickname, used_at
+            FROM recent_command_log
+            WHERE channel_id = ?
+            ORDER BY used_at DESC
+            LIMIT ?
+            """,
+            (channel_id, limit),
+        )
+        rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_recent_messages(channel_id: int, limit: int = 10) -> list[dict]:
+    async with aiosqlite.connect(DATABASE) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute(
+            """
+            SELECT id, author_id, created_at, message_json
+            FROM messages
+            WHERE channel_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (channel_id, limit),
+        )
+
+        rows = await cursor.fetchall()
+
+    result = []
+    for row in rows:
+        entry = dict(row)
+        entry["message_json"] = json.loads(entry["message_json"])
+        result.append(entry)
+    return result
 
 
 async def purge_old_records(days: int) -> int:

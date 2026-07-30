@@ -366,6 +366,135 @@ class Admin(commands.Cog):
             ephemeral=True
         )
 
+    @app_commands.command(
+        name="recent",
+        description="Show the 10 most recent confidential messages in this channel."
+    )
+    async def recent(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        # Log that this user used /recent
+        await database.log_recent_access(
+            guild_id=interaction.guild_id,
+            channel_id=interaction.channel_id,
+            viewer_id=interaction.user.id,
+            username=interaction.user.name,
+            nickname=getattr(interaction.user, "nick", None) or interaction.user.display_name,
+        )
+
+        rows = await database.get_recent_messages(interaction.channel_id, limit=10)
+
+        if not rows:
+            await interaction.followup.send(
+                "No confidential messages found in this channel.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="🔒 Recent Confidential Messages",
+            description=f"Last {len(rows)} message(s) in this channel.",
+            color=discord.Color.gold(),
+        )
+
+        for row in rows:
+            data        = row["message_json"]
+            author_name = data.get("author_name", f"User {row['author_id']}")
+            created_at  = row["created_at"][:16].replace("T", " ")
+            preview     = data.get("content", "")[:60]
+            if len(data.get("content", "")) > 60:
+                preview += "…"
+            embed.add_field(
+                name=f"#{row['id']}  ·  {author_name}  ·  {created_at}",
+                value=preview or "*(no text preview)*",
+                inline=False,
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="recentlog",
+        description="Show who has used /recent in this channel (last 50 uses)."
+    )
+    async def recentlog(self, interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                "❌ You don't have permission to use this command.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        entries = await database.get_recent_access_log(interaction.channel_id, limit=50)
+
+        if not entries:
+            await interaction.followup.send(
+                "No /recent usage recorded for this channel yet.",
+                ephemeral=True,
+            )
+            return
+
+        if len(entries) <= 25:
+            embed = discord.Embed(
+                title="📋 /recent Usage Log",
+                description=f"{len(entries)} use(s) in this channel.",
+                color=discord.Color.blurple(),
+            )
+            for e in entries:
+                ts = e["used_at"][:16].replace("T", " ")
+                name = e["nickname"] or e["username"] or str(e["viewer_id"])
+                embed.add_field(
+                    name=f"{name}  ·  {ts}",
+                    value=f"ID: {e['viewer_id']}",
+                    inline=False,
+                )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            buf = io.StringIO()
+            writer = csv.DictWriter(buf, fieldnames=["viewer_id", "username", "nickname", "used_at"])
+            writer.writeheader()
+            writer.writerows(entries)
+            buf.seek(0)
+            await interaction.followup.send(
+                file=discord.File(io.BytesIO(buf.read().encode()), filename="recentlog.csv"),
+                ephemeral=True,
+            )
+
+    @app_commands.guild_only()
+    @app_commands.command(
+        name="announce",
+        description="Post a public message in this protected channel (not intercepted)."
+    )
+    @app_commands.describe(message="The message to post publicly.")
+    async def announce(
+        self,
+        interaction: discord.Interaction,
+        message: str,
+    ):
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                "❌ You don't have permission to use this command.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            description=message,
+            color=discord.Color.blurple(),
+        )
+        embed.set_author(
+            name=interaction.user.display_name,
+            icon_url=interaction.user.display_avatar.url,
+        )
+        embed.set_footer(text="📢 Public announcement")
+
+        await interaction.response.send_message(
+            "✅ Message posted.",
+            ephemeral=True,
+        )
+        await interaction.channel.send(embed=embed)
+
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))

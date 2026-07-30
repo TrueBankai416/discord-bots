@@ -147,6 +147,9 @@ class Listener(commands.Cog):
                 [m.mention for m in tagged_members]
                 + [r.mention for r in tagged_roles]
             )
+            # Embed field values are capped at 1024 chars
+            if len(tagged_str) > 1024:
+                tagged_str = tagged_str[:1021] + "..."
             embed.add_field(name="Tagged", value=tagged_str, inline=False)
 
         embed.set_footer(text=f"Message ID: {db_id}")
@@ -159,6 +162,9 @@ class Listener(commands.Cog):
         if reply_to_author_id:
             ping_parts.insert(0, f"<@{reply_to_author_id}>")
         ping_content = " ".join(ping_parts) or None
+        # Message content is capped at 2000 chars
+        if ping_content and len(ping_content) > 2000:
+            ping_content = ping_content[:1997] + "..."
 
         placeholder = await message.channel.send(
             content=ping_content,

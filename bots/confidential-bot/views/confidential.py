@@ -139,8 +139,11 @@ def build_message_image(
     f_emoji = _emoji_font(14)
 
     # If no emoji font is available, convert emoji to :shortcode: so they
-    # aren't rendered as boxes by the main font.
-    display_content = content if f_emoji else emoji_lib.demojize(content, delimiters=(":", ":"))
+    # aren't rendered as boxes by the main font. Apply to all text fields.
+    def _norm(text: str) -> str:
+        return text if f_emoji else emoji_lib.demojize(text, delimiters=(":", ":"))
+
+    display_content = _norm(content)
     lines = textwrap.wrap(display_content, width=WRAP) or ["(empty message)"]
 
     header_h = PAD + 24 + PAD // 2
@@ -160,7 +163,7 @@ def build_message_image(
     draw.text((PAD, PAD // 2), "CONFIDENTIAL MESSAGE", font=f_title, fill=_GOLD)
 
     y = header_h
-    draw.text((PAD, y), f"From: {author_name}", font=f_small, fill=_SUBTEXT)
+    _draw_with_emoji(draw, (PAD, y), f"From: {_norm(author_name)}", f_small, f_emoji, _SUBTEXT)
     y += meta_h
 
     if reply_to_name:
@@ -169,10 +172,10 @@ def build_message_image(
         # Gold vertical bar
         draw.rectangle([(PAD, y + 4), (PAD + 3, y + quote_h - 4)], fill=_GOLD)
         # Author + message ID
-        draw.text((text_x, y + 8), f"↩ {reply_to_name}{id_str}", font=f_small, fill=_GOLD)
+        _draw_with_emoji(draw, (text_x, y + 8), f"↩ {_norm(reply_to_name)}{id_str}", f_small, f_emoji, _GOLD)
         # Content preview
         if reply_to_content:
-            draw.text((text_x, y + 8 + 18), reply_to_content, font=f_small, fill=_SUBTEXT)
+            _draw_with_emoji(draw, (text_x, y + 8 + 18), _norm(reply_to_content), f_small, f_emoji, _SUBTEXT)
         y += quote_h
 
     # Separator
@@ -191,7 +194,7 @@ def build_message_image(
     y += rule_h + 8
 
     # Watermark footer
-    draw.text((PAD, y), f"Viewed by: {viewer_name}  |  ID: {viewer_id}", font=f_small, fill=_MARK)
+    _draw_with_emoji(draw, (PAD, y), f"Viewed by: {_norm(viewer_name)}  |  ID: {viewer_id}", f_small, f_emoji, _MARK)
     y += 18
     draw.text((PAD, y), f"Time: {timestamp} UTC", font=f_small, fill=_MARK)
     y += 18

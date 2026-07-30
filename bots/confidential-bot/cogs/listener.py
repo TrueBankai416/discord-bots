@@ -47,6 +47,10 @@ class Listener(commands.Cog):
         if not message.content or not message.content.strip():
             return
 
+        # Capture mentions before the message is deleted
+        tagged_members = list(message.mentions)
+        tagged_roles   = list(message.role_mentions)
+
         # Download any attachments before the message is deleted
         attachment_bytes: list[tuple[str, bytes]] = []
         for att in message.attachments:
@@ -95,13 +99,28 @@ class Listener(commands.Cog):
             color=discord.Color.gold(),
         )
 
+        if tagged_members or tagged_roles:
+            tagged_str = " ".join(
+                [m.mention for m in tagged_members]
+                + [r.mention for r in tagged_roles]
+            )
+            embed.add_field(name="Tagged", value=tagged_str, inline=False)
+
         embed.set_footer(text=f"Message ID: {db_id}")
 
         view = ConfidentialView(db_id)
 
+        # Include raw mentions in content so Discord sends ping notifications
+        ping_content = " ".join(
+            [m.mention for m in tagged_members]
+            + [r.mention for r in tagged_roles]
+        ) or None
+
         placeholder = await message.channel.send(
+            content=ping_content,
             embed=embed,
-            view=view
+            view=view,
+            allowed_mentions=discord.AllowedMentions(users=True, roles=True),
         )
 
         await database.set_placeholder_message(

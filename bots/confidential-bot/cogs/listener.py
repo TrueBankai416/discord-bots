@@ -26,10 +26,14 @@ class Listener(commands.Cog):
 
         # Save the message
         db_id = await database.save_message(
-            author_id=message.author.id,
+            guild_id=message.guild.id,
             channel_id=message.channel.id,
-            content=message.content,
-            original_message_id=message.id,
+            author_id=message.author.id,
+            message_data={
+                "content": message.content,
+                "original_message_id": str(message.id),
+                "author_name": message.author.display_name,
+            },
         )
 
         # Delete the original

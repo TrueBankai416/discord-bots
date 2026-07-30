@@ -51,6 +51,8 @@ class Listener(commands.Cog):
         # the original author so they know someone replied to them.
         reply_to_author_id: int | None = None
         reply_to_author_name: str | None = None
+        reply_to_message_id: int | None = None
+        reply_to_content: str | None = None
         if message.reference and message.reference.message_id:
             replied_row = await database.get_message_by_placeholder(
                 message.reference.message_id
@@ -62,6 +64,9 @@ class Listener(commands.Cog):
                     reply_member.display_name if reply_member
                     else str(reply_to_author_id)
                 )
+                reply_to_message_id = replied_row["id"]
+                raw = replied_row["message_json"].get("content", "").strip()
+                reply_to_content = (raw[:80] + "…") if len(raw) > 80 else raw
 
         # Capture mentions before the message is deleted
         tagged_members = list(message.mentions)
@@ -87,6 +92,8 @@ class Listener(commands.Cog):
                 "attachments": [fn for fn, _ in attachment_bytes],
                 "reply_to_author_id": reply_to_author_id,
                 "reply_to_author_name": reply_to_author_name,
+                "reply_to_message_id": reply_to_message_id,
+                "reply_to_content": reply_to_content,
             },
         )
 
@@ -120,7 +127,7 @@ class Listener(commands.Cog):
         if reply_to_author_id:
             embed.add_field(
                 name="↩ Reply to",
-                value=f"<@{reply_to_author_id}>",
+                value=f"<@{reply_to_author_id}> · Message #{reply_to_message_id}",
                 inline=False,
             )
 

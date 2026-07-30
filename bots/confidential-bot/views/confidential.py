@@ -126,6 +126,8 @@ def build_message_image(
     timestamp: str,
     session_id: str,
     reply_to_name: str | None = None,
+    reply_to_id: int | None = None,
+    reply_to_content: str | None = None,
 ) -> io.BytesIO:
     PAD   = 24
     WIDTH = 640
@@ -143,11 +145,12 @@ def build_message_image(
 
     header_h = PAD + 24 + PAD // 2
     meta_h   = 20 + 8
-    reply_h  = 18 + 4 if reply_to_name else 0
+    # Quote block: top/bottom pad (8 each) + author line (18) + content line (18 if present)
+    quote_h  = (8 + 18 + (18 if reply_to_content else 0) + 8) if reply_to_name else 0
     rule_h   = 8
     body_h   = len(lines) * 22
     foot_h   = rule_h + 8 + 3 * 18
-    HEIGHT   = header_h + meta_h + reply_h + rule_h + 10 + body_h + 10 + foot_h + PAD
+    HEIGHT   = header_h + meta_h + quote_h + rule_h + 10 + body_h + 10 + foot_h + PAD
 
     img  = Image.new("RGB", (WIDTH, max(HEIGHT, 220)), _BG)
     draw = ImageDraw.Draw(img)
@@ -161,8 +164,16 @@ def build_message_image(
     y += meta_h
 
     if reply_to_name:
-        draw.text((PAD, y), f"↩ Reply to: {reply_to_name}", font=f_small, fill=_SUBTEXT)
-        y += reply_h
+        text_x = PAD + 10
+        id_str = f"  ·  msg #{reply_to_id}" if reply_to_id else ""
+        # Gold vertical bar
+        draw.rectangle([(PAD, y + 4), (PAD + 3, y + quote_h - 4)], fill=_GOLD)
+        # Author + message ID
+        draw.text((text_x, y + 8), f"↩ {reply_to_name}{id_str}", font=f_small, fill=_GOLD)
+        # Content preview
+        if reply_to_content:
+            draw.text((text_x, y + 8 + 18), reply_to_content, font=f_small, fill=_SUBTEXT)
+        y += quote_h
 
     # Separator
     draw.line([(PAD, y), (WIDTH - PAD, y)], fill=_RULE, width=1)
@@ -247,6 +258,8 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
         content     = data.get("content", "")
         author_name = data.get("author_name", f"User {message['author_id']}")
         reply_to    = data.get("reply_to_author_name")
+        reply_id    = data.get("reply_to_message_id")
+        reply_body  = data.get("reply_to_content")
 
         buf = build_message_image(
             content=content,
@@ -256,6 +269,8 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
             timestamp=timestamp,
             session_id=session_id,
             reply_to_name=reply_to,
+            reply_to_id=reply_id,
+            reply_to_content=reply_body,
         )
 
         files = [discord.File(buf, filename="confidential.png")]

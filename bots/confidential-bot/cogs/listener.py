@@ -79,7 +79,8 @@ class Listener(commands.Cog):
                 reply_to_content = (raw[:80] + "…") if len(raw) > 80 else raw
 
         # Capture mentions before the message is deleted (exclude the bot itself)
-        tagged_members = [m for m in message.mentions if m.id != self.bot.user.id]
+        bot_id = self.bot.user.id if self.bot.user else None
+        tagged_members = [m for m in message.mentions if m.id != bot_id]
         tagged_roles   = list(message.role_mentions)
 
         # Download any attachments before the message is deleted
@@ -96,7 +97,7 @@ class Listener(commands.Cog):
             channel_id=message.channel.id,
             author_id=message.author.id,
             message_data={
-                "content": _resolve_mentions(message, bot_id=self.bot.user.id),
+                "content": _resolve_mentions(message, bot_id=bot_id),
                 "original_message_id": str(message.id),
                 "author_name": message.author.display_name,
                 "attachments": [fn for fn, _ in attachment_bytes],
@@ -147,9 +148,10 @@ class Listener(commands.Cog):
                 [m.mention for m in tagged_members]
                 + [r.mention for r in tagged_roles]
             )
-            # Embed field values are capped at 1024 chars
+            # Embed field values are capped at 1024 chars — truncate on a word
+            # boundary so we never split a mention token in half.
             if len(tagged_str) > 1024:
-                tagged_str = tagged_str[:1021] + "..."
+                tagged_str = tagged_str[:1024].rsplit(" ", 1)[0] + " ..."
             embed.add_field(name="Tagged", value=tagged_str, inline=False)
 
         embed.set_footer(text=f"Message ID: {db_id}")
@@ -162,9 +164,9 @@ class Listener(commands.Cog):
         if reply_to_author_id:
             ping_parts.insert(0, f"<@{reply_to_author_id}>")
         ping_content = " ".join(ping_parts) or None
-        # Message content is capped at 2000 chars
+        # Message content is capped at 2000 chars — truncate on a word boundary.
         if ping_content and len(ping_content) > 2000:
-            ping_content = ping_content[:1997] + "..."
+            ping_content = ping_content[:2000].rsplit(" ", 1)[0] + " ..."
 
         placeholder = await message.channel.send(
             content=ping_content,

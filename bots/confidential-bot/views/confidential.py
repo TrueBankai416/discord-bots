@@ -244,14 +244,6 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
         nickname   = getattr(viewer, "nick", None) or viewer.display_name
         timestamp  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 
-        await database.log_view(
-            message_id=self.message_id,
-            viewer_id=viewer.id,
-            username=username,
-            nickname=nickname,
-            session_id=session_id,
-        )
-
         message = await database.get_message(self.message_id)
 
         if message is None:
@@ -260,6 +252,15 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
                 ephemeral=True,
             )
             return
+
+        # Log the view only once we know the message still exists
+        await database.log_view(
+            message_id=self.message_id,
+            viewer_id=viewer.id,
+            username=username,
+            nickname=nickname,
+            session_id=session_id,
+        )
 
         data        = message["message_json"]
         content     = data.get("content", "")

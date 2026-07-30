@@ -24,6 +24,10 @@ class Listener(commands.Cog):
         if not await database.is_protected(message.channel.id):
             return
 
+        # Ignore messages with no text (images, GIFs, stickers, etc.)
+        if not message.content or not message.content.strip():
+            return
+
         # Save the message
         db_id = await database.save_message(
             guild_id=message.guild.id,

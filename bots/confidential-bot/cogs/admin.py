@@ -288,6 +288,55 @@ class Admin(commands.Cog):
         )
 
     @app_commands.command(
+        name="roster",
+        description="List all members with their user IDs and nicknames."
+    )
+    async def roster(
+        self,
+        interaction: discord.Interaction,
+    ):
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                "❌ You don't have permission to use this command.",
+                ephemeral=True
+            )
+            return
+
+        members = sorted(
+            [m for m in interaction.guild.members if not m.bot],
+            key=lambda m: m.display_name.lower()
+        )
+
+        # Build CSV for large guilds; embed for small ones
+        if len(members) > 30:
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(["id", "username", "display_name"])
+            for m in members:
+                writer.writerow([m.id, m.name, m.display_name])
+            buf.seek(0)
+            file = discord.File(
+                io.BytesIO(buf.getvalue().encode()),
+                filename="roster.csv"
+            )
+            await interaction.response.send_message(
+                f"📋 {len(members)} members.",
+                file=file,
+                ephemeral=True
+            )
+        else:
+            lines = [
+                f"`{m.id}` — **{m.display_name}** ({m.name})"
+                for m in members
+            ]
+            embed = discord.Embed(
+                title=f"📋 Member Roster ({len(members)})",
+                description="\n".join(lines),
+                color=discord.Color.blurple()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
         name="purge",
         description="Delete confidential message records older than N days."
     )

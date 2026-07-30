@@ -29,6 +29,13 @@ _FONT_PATHS = [
     "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
 ]
 
+_EMOJI_FONT_PATHS = [
+    "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoEmoji-VariableFont_wght.ttf",
+    "/usr/share/fonts/noto/NotoEmoji-Regular.ttf",
+    "C:/Windows/Fonts/seguiemj.ttf",
+]
+
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
     for path in _FONT_PATHS:
@@ -37,6 +44,39 @@ def _font(size: int) -> ImageFont.FreeTypeFont:
         except (OSError, IOError):
             continue
     return ImageFont.load_default()
+
+
+def _emoji_font(size: int):
+    for path in _EMOJI_FONT_PATHS:
+        try:
+            return ImageFont.truetype(path, size)
+        except (OSError, IOError):
+            continue
+    return None
+
+
+def _draw_with_emoji(draw, xy, text, main_font, e_font, fill):
+    """Render text, switching to e_font for emoji sequences."""
+    x, y = xy
+    if not e_font:
+        draw.text((x, y), text, font=main_font, fill=fill)
+        return
+
+    segments = []
+    last = 0
+    for item in emoji_lib.emoji_list(text):
+        s, e = item["match_start"], item["match_end"]
+        if last < s:
+            segments.append((text[last:s], False))
+        segments.append((text[s:e], True))
+        last = e
+    if last < len(text):
+        segments.append((text[last:], False))
+
+    for seg, is_emoji in segments:
+        font = e_font if is_emoji else main_font
+        draw.text((x, y), seg, font=font, fill=fill)
+        x += font.getlength(seg)
 
 
 def _session_id() -> str:
@@ -93,11 +133,9 @@ def build_message_image(
     f_title = _font(15)
     f_body  = _font(14)
     f_small = _font(12)
+    f_emoji = _emoji_font(14)
 
-    lines = textwrap.wrap(
-        emoji_lib.demojize(content, delimiters=(":", ":")),
-        width=WRAP
-    ) or ["(empty message)"]
+    lines = textwrap.wrap(content, width=WRAP) or ["(empty message)"]
 
     header_h = PAD + 24 + PAD // 2
     meta_h   = 20 + 8
@@ -123,7 +161,7 @@ def build_message_image(
 
     # Message body
     for line in lines:
-        draw.text((PAD, y), line, font=f_body, fill=_BODY)
+        _draw_with_emoji(draw, (PAD, y), line, f_body, f_emoji, _BODY)
         y += 22
 
     y += 10

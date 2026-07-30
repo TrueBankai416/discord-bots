@@ -1,4 +1,5 @@
 import io
+import os
 import secrets
 import string
 import textwrap
@@ -204,8 +205,19 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
             session_id=session_id,
         )
 
+        files = [discord.File(buf, filename="confidential.png")]
+
+        # Re-attach any files that were saved when the original was deleted
+        att_dir = os.path.join("data", "attachments", str(self.message_id))
+        if os.path.isdir(att_dir):
+            for filename in sorted(os.listdir(att_dir)):
+                try:
+                    files.append(discord.File(os.path.join(att_dir, filename), filename=filename))
+                except Exception as e:
+                    print(f"Failed to attach {filename}: {e}")
+
         await interaction.response.send_message(
-            file=discord.File(buf, filename="confidential.png"),
+            files=files,
             ephemeral=True,
         )
 

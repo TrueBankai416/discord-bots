@@ -1,3 +1,5 @@
+import os
+
 import discord
 from discord.ext import commands
 
@@ -28,6 +30,14 @@ class Listener(commands.Cog):
         if not message.content or not message.content.strip():
             return
 
+        # Download any attachments before the message is deleted
+        attachment_bytes: list[tuple[str, bytes]] = []
+        for att in message.attachments:
+            try:
+                attachment_bytes.append((att.filename, await att.read()))
+            except Exception as e:
+                print(f"Failed to download attachment {att.filename}: {e}")
+
         # Save the message
         db_id = await database.save_message(
             guild_id=message.guild.id,
@@ -37,8 +47,17 @@ class Listener(commands.Cog):
                 "content": message.content,
                 "original_message_id": str(message.id),
                 "author_name": message.author.display_name,
+                "attachments": [fn for fn, _ in attachment_bytes],
             },
         )
+
+        # Persist attachments to disk now that we have the db_id
+        if attachment_bytes:
+            att_dir = os.path.join("data", "attachments", str(db_id))
+            os.makedirs(att_dir, exist_ok=True)
+            for filename, data in attachment_bytes:
+                with open(os.path.join(att_dir, filename), "wb") as fh:
+                    fh.write(data)
 
         # Delete the original
         try:

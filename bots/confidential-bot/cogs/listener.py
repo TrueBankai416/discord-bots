@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 import discord
@@ -114,7 +115,8 @@ class Listener(commands.Cog):
                 with open(os.path.join(att_dir, filename), "wb") as fh:
                     fh.write(data)
 
-        # Delete the original
+        # Delete the original (small delay to let Discord process the message first)
+        await asyncio.sleep(0.5)
         try:
             await message.delete()
         except discord.Forbidden:

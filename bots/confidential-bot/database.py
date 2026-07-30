@@ -1,4 +1,5 @@
 import json
+import os
 import aiosqlite
 from datetime import datetime
 
@@ -6,6 +7,8 @@ DATABASE = "data/bot.db"
 
 
 async def initialize():
+    os.makedirs(os.path.dirname(DATABASE), exist_ok=True)
+
     async with aiosqlite.connect(DATABASE) as db:
         await db.execute("PRAGMA foreign_keys = ON")
 
@@ -26,8 +29,11 @@ async def initialize():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_id INTEGER NOT NULL,
                 viewer_id INTEGER NOT NULL,
+                username TEXT,
+                nickname TEXT,
+                session_id TEXT,
                 viewed_at TEXT NOT NULL,
-                FOREIGN KEY(message_id) REFERENCES messages(id)
+                FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
             )
         """)
 
@@ -39,6 +45,17 @@ async def initialize():
                 delete_delay REAL NOT NULL DEFAULT 0
             )
         """)
+
+        # Migrate views table: add columns that may not exist in older databases.
+        for col, definition in [
+            ("username",   "TEXT"),
+            ("nickname",   "TEXT"),
+            ("session_id", "TEXT"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE views ADD COLUMN {col} {definition}")
+            except Exception:
+                pass  # column already exists
 
         await db.commit()
 
@@ -152,6 +169,9 @@ async def set_placeholder_message(
 async def log_view(
     message_id: int,
     viewer_id: int,
+    username: str = None,
+    nickname: str = None,
+    session_id: str = None,
 ):
 
     async with aiosqlite.connect(DATABASE) as db:
@@ -162,13 +182,19 @@ async def log_view(
             (
                 message_id,
                 viewer_id,
+                username,
+                nickname,
+                session_id,
                 viewed_at
             )
-            VALUES (?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 message_id,
                 viewer_id,
+                username,
+                nickname,
+                session_id,
                 datetime.utcnow().isoformat(),
             ),
         )
@@ -255,3 +281,65 @@ async def get_protected_channels():
         )
 
         return [row[0] for row in await cursor.fetchall()]
+
+
+async def get_viewer_ids(message_id: int) -> list[int]:
+
+    async with aiosqlite.connect(DATABASE) as db:
+
+        cursor = await db.execute(
+            """
+            SELECT DISTINCT viewer_id
+            FROM views
+            WHERE message_id=?
+            """,
+            (message_id,),
+        )
+
+        return [row[0] for row in await cursor.fetchall()]
+
+
+async def get_user_history(viewer_id: int) -> list[dict]:
+
+    async with aiosqlite.connect(DATABASE) as db:
+        db.row_factory = aiosqlite.Row
+
+        cursor = await db.execute(
+            """
+            SELECT
+                v.id,
+                v.message_id,
+                v.session_id,
+                v.viewed_at,
+                m.channel_id,
+                m.created_at AS message_created_at
+            FROM views v
+            JOIN messages m ON v.message_id = m.id
+            WHERE v.viewer_id = ?
+            ORDER BY v.viewed_at DESC
+            """,
+            (viewer_id,),
+        )
+
+        return [dict(row) for row in await cursor.fetchall()]
+
+
+async def purge_old_records(days: int) -> int:
+    from datetime import timedelta
+
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+    async with aiosqlite.connect(DATABASE) as db:
+        await db.execute("PRAGMA foreign_keys = ON")
+
+        cursor = await db.execute(
+            """
+            DELETE FROM messages
+            WHERE created_at < ?
+            """,
+            (cutoff,),
+        )
+
+        await db.commit()
+
+        return cursor.rowcount

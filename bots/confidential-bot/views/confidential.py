@@ -125,6 +125,7 @@ def build_message_image(
     viewer_id: int,
     timestamp: str,
     session_id: str,
+    reply_to_name: str | None = None,
 ) -> io.BytesIO:
     PAD   = 24
     WIDTH = 640
@@ -142,10 +143,11 @@ def build_message_image(
 
     header_h = PAD + 24 + PAD // 2
     meta_h   = 20 + 8
+    reply_h  = 18 + 4 if reply_to_name else 0
     rule_h   = 8
     body_h   = len(lines) * 22
     foot_h   = rule_h + 8 + 3 * 18
-    HEIGHT   = header_h + meta_h + rule_h + 10 + body_h + 10 + foot_h + PAD
+    HEIGHT   = header_h + meta_h + reply_h + rule_h + 10 + body_h + 10 + foot_h + PAD
 
     img  = Image.new("RGB", (WIDTH, max(HEIGHT, 220)), _BG)
     draw = ImageDraw.Draw(img)
@@ -157,6 +159,10 @@ def build_message_image(
     y = header_h
     draw.text((PAD, y), f"From: {author_name}", font=f_small, fill=_SUBTEXT)
     y += meta_h
+
+    if reply_to_name:
+        draw.text((PAD, y), f"↩ Reply to: {reply_to_name}", font=f_small, fill=_SUBTEXT)
+        y += reply_h
 
     # Separator
     draw.line([(PAD, y), (WIDTH - PAD, y)], fill=_RULE, width=1)
@@ -240,6 +246,7 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
         data        = message["message_json"]
         content     = data.get("content", "")
         author_name = data.get("author_name", f"User {message['author_id']}")
+        reply_to    = data.get("reply_to_author_name")
 
         buf = build_message_image(
             content=content,
@@ -248,6 +255,7 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
             viewer_id=viewer.id,
             timestamp=timestamp,
             session_id=session_id,
+            reply_to_name=reply_to,
         )
 
         files = [discord.File(buf, filename="confidential.png")]

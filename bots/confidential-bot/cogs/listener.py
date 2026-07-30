@@ -47,6 +47,22 @@ class Listener(commands.Cog):
         if not message.content or not message.content.strip():
             return
 
+        # Detect if this message is a reply to a placeholder — if so, notify
+        # the original author so they know someone replied to them.
+        reply_to_author_id: int | None = None
+        reply_to_author_name: str | None = None
+        if message.reference and message.reference.message_id:
+            replied_row = await database.get_message_by_placeholder(
+                message.reference.message_id
+            )
+            if replied_row:
+                reply_to_author_id = replied_row["author_id"]
+                reply_member = message.guild.get_member(reply_to_author_id)
+                reply_to_author_name = (
+                    reply_member.display_name if reply_member
+                    else str(reply_to_author_id)
+                )
+
         # Capture mentions before the message is deleted
         tagged_members = list(message.mentions)
         tagged_roles   = list(message.role_mentions)
@@ -69,6 +85,8 @@ class Listener(commands.Cog):
                 "original_message_id": str(message.id),
                 "author_name": message.author.display_name,
                 "attachments": [fn for fn, _ in attachment_bytes],
+                "reply_to_author_id": reply_to_author_id,
+                "reply_to_author_name": reply_to_author_name,
             },
         )
 
@@ -99,6 +117,13 @@ class Listener(commands.Cog):
             color=discord.Color.gold(),
         )
 
+        if reply_to_author_id:
+            embed.add_field(
+                name="↩ Reply to",
+                value=f"<@{reply_to_author_id}>",
+                inline=False,
+            )
+
         if tagged_members or tagged_roles:
             tagged_str = " ".join(
                 [m.mention for m in tagged_members]
@@ -110,11 +135,12 @@ class Listener(commands.Cog):
 
         view = ConfidentialView(db_id)
 
-        # Include raw mentions in content so Discord sends ping notifications
-        ping_content = " ".join(
-            [m.mention for m in tagged_members]
-            + [r.mention for r in tagged_roles]
-        ) or None
+        # Include raw mentions in content so Discord sends ping notifications.
+        # Always include the original author when this is a reply, so they're notified.
+        ping_parts = [m.mention for m in tagged_members] + [r.mention for r in tagged_roles]
+        if reply_to_author_id:
+            ping_parts.insert(0, f"<@{reply_to_author_id}>")
+        ping_content = " ".join(ping_parts) or None
 
         placeholder = await message.channel.send(
             content=ping_content,

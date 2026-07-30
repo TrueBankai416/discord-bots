@@ -461,6 +461,39 @@ class Admin(commands.Cog):
                 ephemeral=True,
             )
 
+    @app_commands.command(
+        name="announce",
+        description="Post a public message in this protected channel (not intercepted)."
+    )
+    @app_commands.describe(message="The message to post publicly.")
+    async def announce(
+        self,
+        interaction: discord.Interaction,
+        message: str,
+    ):
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                "❌ You don't have permission to use this command.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            description=message,
+            color=discord.Color.blurple(),
+        )
+        embed.set_author(
+            name=interaction.user.display_name,
+            icon_url=interaction.user.display_avatar.url,
+        )
+        embed.set_footer(text="📢 Public announcement")
+
+        await interaction.response.send_message(
+            "✅ Message posted.",
+            ephemeral=True,
+        )
+        await interaction.channel.send(embed=embed)
+
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))

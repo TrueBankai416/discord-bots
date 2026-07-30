@@ -5,6 +5,7 @@ import string
 import textwrap
 from datetime import datetime, timezone
 
+import emoji as emoji_lib
 import discord
 from PIL import Image, ImageDraw, ImageFont
 
@@ -93,7 +94,10 @@ def build_message_image(
     f_body  = _font(14)
     f_small = _font(12)
 
-    lines = textwrap.wrap(content, width=WRAP) or ["(empty message)"]
+    lines = textwrap.wrap(
+        emoji_lib.demojize(content, delimiters=(":", ":")),
+        width=WRAP
+    ) or ["(empty message)"]
 
     header_h = PAD + 24 + PAD // 2
     meta_h   = 20 + 8

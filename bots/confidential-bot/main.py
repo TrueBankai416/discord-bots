@@ -28,13 +28,17 @@ class ConfidentialBot(commands.Bot):
         # Register persistent dynamic button
         self.add_dynamic_items(ViewMessageButton)
 
-        # Sync slash commands to development guild
-        guild = discord.Object(id=GUILD_ID)
+        # Sync slash commands globally so they work in every guild the bot joins.
+        # Global sync can take up to 1 hour to propagate; guild sync is instant
+        # but only works for the one guild. To force instant sync on your dev
+        # guild during testing, uncomment the three lines below.
+        synced = await self.tree.sync()
+        print(f"Synced {len(synced)} commands globally")
 
-        self.tree.copy_global_to(guild=guild)
-        synced = await self.tree.sync(guild=guild)
-
-        print(f"Synced {len(synced)} commands to guild {GUILD_ID}")
+        # --- Dev guild instant-sync (uncomment for faster testing) ---
+        # guild = discord.Object(id=GUILD_ID)
+        # self.tree.copy_global_to(guild=guild)
+        # await self.tree.sync(guild=guild)
 
     async def on_ready(self):
         print(f"Logged in as {self.user}")

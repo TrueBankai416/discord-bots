@@ -7,6 +7,23 @@ import database
 from views.confidential import ConfidentialView
 
 
+def _resolve_mentions(message: discord.Message) -> str:
+    """Replace raw Discord mention tokens with human-readable names."""
+    content = message.content
+
+    for member in message.mentions:
+        content = content.replace(f"<@{member.id}>",  f"@{member.display_name}")
+        content = content.replace(f"<@!{member.id}>", f"@{member.display_name}")
+
+    for role in message.role_mentions:
+        content = content.replace(f"<@&{role.id}>", f"@{role.name}")
+
+    for channel in message.channel_mentions:
+        content = content.replace(f"<#{channel.id}>", f"#{channel.name}")
+
+    return content
+
+
 class Listener(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -44,7 +61,7 @@ class Listener(commands.Cog):
             channel_id=message.channel.id,
             author_id=message.author.id,
             message_data={
-                "content": message.content,
+                "content": _resolve_mentions(message),
                 "original_message_id": str(message.id),
                 "author_name": message.author.display_name,
                 "attachments": [fn for fn, _ in attachment_bytes],

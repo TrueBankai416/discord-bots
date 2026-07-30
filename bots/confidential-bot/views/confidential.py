@@ -231,6 +231,10 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
         return cls(int(match["message_id"]))
 
     async def callback(self, interaction: discord.Interaction):
+        # Defer immediately so Discord doesn't time out the interaction
+        # while we do DB queries and image generation.
+        await interaction.response.defer(ephemeral=True)
+
         session_id = _session_id()
         viewer     = interaction.user
         username   = viewer.name
@@ -248,7 +252,7 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
         message = await database.get_message(self.message_id)
 
         if message is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ This message no longer exists.",
                 ephemeral=True,
             )
@@ -284,7 +288,7 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
                 except Exception as e:
                     print(f"Failed to attach {filename}: {e}")
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             files=files,
             ephemeral=True,
         )

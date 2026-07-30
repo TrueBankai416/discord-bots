@@ -125,6 +125,9 @@ def build_message_image(
     viewer_id: int,
     timestamp: str,
     session_id: str,
+    reply_to_name: str | None = None,
+    reply_to_id: int | None = None,
+    reply_to_content: str | None = None,
 ) -> io.BytesIO:
     PAD   = 24
     WIDTH = 640
@@ -136,16 +139,21 @@ def build_message_image(
     f_emoji = _emoji_font(14)
 
     # If no emoji font is available, convert emoji to :shortcode: so they
-    # aren't rendered as boxes by the main font.
-    display_content = content if f_emoji else emoji_lib.demojize(content, delimiters=(":", ":"))
+    # aren't rendered as boxes by the main font. Apply to all text fields.
+    def _norm(text: str) -> str:
+        return text if f_emoji else emoji_lib.demojize(text, delimiters=(":", ":"))
+
+    display_content = _norm(content)
     lines = textwrap.wrap(display_content, width=WRAP) or ["(empty message)"]
 
     header_h = PAD + 24 + PAD // 2
     meta_h   = 20 + 8
+    # Quote block: top/bottom pad (8 each) + author line (18) + content line (18 if present)
+    quote_h  = (8 + 18 + (18 if reply_to_content else 0) + 8) if reply_to_name else 0
     rule_h   = 8
     body_h   = len(lines) * 22
     foot_h   = rule_h + 8 + 3 * 18
-    HEIGHT   = header_h + meta_h + rule_h + 10 + body_h + 10 + foot_h + PAD
+    HEIGHT   = header_h + meta_h + quote_h + rule_h + 10 + body_h + 10 + foot_h + PAD
 
     img  = Image.new("RGB", (WIDTH, max(HEIGHT, 220)), _BG)
     draw = ImageDraw.Draw(img)
@@ -155,8 +163,20 @@ def build_message_image(
     draw.text((PAD, PAD // 2), "CONFIDENTIAL MESSAGE", font=f_title, fill=_GOLD)
 
     y = header_h
-    draw.text((PAD, y), f"From: {author_name}", font=f_small, fill=_SUBTEXT)
+    _draw_with_emoji(draw, (PAD, y), f"From: {_norm(author_name)}", f_small, f_emoji, _SUBTEXT)
     y += meta_h
+
+    if reply_to_name:
+        text_x = PAD + 10
+        id_str = f"  ·  msg #{reply_to_id}" if reply_to_id else ""
+        # Gold vertical bar
+        draw.rectangle([(PAD, y + 4), (PAD + 3, y + quote_h - 4)], fill=_GOLD)
+        # Author + message ID
+        _draw_with_emoji(draw, (text_x, y + 8), f"↩ {_norm(reply_to_name)}{id_str}", f_small, f_emoji, _GOLD)
+        # Content preview
+        if reply_to_content:
+            _draw_with_emoji(draw, (text_x, y + 8 + 18), _norm(reply_to_content), f_small, f_emoji, _SUBTEXT)
+        y += quote_h
 
     # Separator
     draw.line([(PAD, y), (WIDTH - PAD, y)], fill=_RULE, width=1)
@@ -174,7 +194,7 @@ def build_message_image(
     y += rule_h + 8
 
     # Watermark footer
-    draw.text((PAD, y), f"Viewed by: {viewer_name}  |  ID: {viewer_id}", font=f_small, fill=_MARK)
+    _draw_with_emoji(draw, (PAD, y), f"Viewed by: {_norm(viewer_name)}  |  ID: {viewer_id}", f_small, f_emoji, _MARK)
     y += 18
     draw.text((PAD, y), f"Time: {timestamp} UTC", font=f_small, fill=_MARK)
     y += 18
@@ -214,12 +234,26 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
         return cls(int(match["message_id"]))
 
     async def callback(self, interaction: discord.Interaction):
+        # Defer immediately so Discord doesn't time out the interaction
+        # while we do DB queries and image generation.
+        await interaction.response.defer(ephemeral=True)
+
         session_id = _session_id()
         viewer     = interaction.user
         username   = viewer.name
         nickname   = getattr(viewer, "nick", None) or viewer.display_name
         timestamp  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
 
+        message = await database.get_message(self.message_id)
+
+        if message is None:
+            await interaction.followup.send(
+                "❌ This message no longer exists.",
+                ephemeral=True,
+            )
+            return
+
+        # Log the view only once we know the message still exists
         await database.log_view(
             message_id=self.message_id,
             viewer_id=viewer.id,
@@ -228,18 +262,12 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
             session_id=session_id,
         )
 
-        message = await database.get_message(self.message_id)
-
-        if message is None:
-            await interaction.response.send_message(
-                "❌ This message no longer exists.",
-                ephemeral=True,
-            )
-            return
-
         data        = message["message_json"]
         content     = data.get("content", "")
         author_name = data.get("author_name", f"User {message['author_id']}")
+        reply_to    = data.get("reply_to_author_name")
+        reply_id    = data.get("reply_to_message_id")
+        reply_body  = data.get("reply_to_content")
 
         buf = build_message_image(
             content=content,
@@ -248,6 +276,9 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
             viewer_id=viewer.id,
             timestamp=timestamp,
             session_id=session_id,
+            reply_to_name=reply_to,
+            reply_to_id=reply_id,
+            reply_to_content=reply_body,
         )
 
         files = [discord.File(buf, filename="confidential.png")]
@@ -261,7 +292,7 @@ class ViewMessageButton(discord.ui.DynamicItem[discord.ui.Button], template=r"vi
                 except Exception as e:
                     print(f"Failed to attach {filename}: {e}")
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             files=files,
             ephemeral=True,
         )

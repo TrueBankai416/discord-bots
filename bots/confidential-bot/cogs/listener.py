@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 import discord
@@ -7,13 +8,18 @@ import database
 from views.confidential import ConfidentialView
 
 
-def _resolve_mentions(message: discord.Message) -> str:
-    """Replace raw Discord mention tokens with human-readable names."""
+def _resolve_mentions(message: discord.Message, bot_id: int | None = None) -> str:
+    """Replace raw Discord mention tokens with human-readable names.
+    If bot_id is provided, bot mentions are stripped entirely."""
     content = message.content
 
     for member in message.mentions:
-        content = content.replace(f"<@{member.id}>",  f"@{member.display_name}")
-        content = content.replace(f"<@!{member.id}>", f"@{member.display_name}")
+        if bot_id and member.id == bot_id:
+            # Remove the bot mention token (and any surrounding whitespace)
+            content = content.replace(f"<@{member.id}>", "").replace(f"<@!{member.id}>", "")
+        else:
+            content = content.replace(f"<@{member.id}>",  f"@{member.display_name}")
+            content = content.replace(f"<@!{member.id}>", f"@{member.display_name}")
 
     for role in message.role_mentions:
         content = content.replace(f"<@&{role.id}>", f"@{role.name}")
@@ -21,7 +27,7 @@ def _resolve_mentions(message: discord.Message) -> str:
     for channel in message.channel_mentions:
         content = content.replace(f"<#{channel.id}>", f"#{channel.name}")
 
-    return content
+    return content.strip()
 
 
 class Listener(commands.Cog):
@@ -47,8 +53,34 @@ class Listener(commands.Cog):
         if not message.content or not message.content.strip():
             return
 
-        # Capture mentions before the message is deleted
-        tagged_members = list(message.mentions)
+        # Detect if this message is a reply to a placeholder — if so, notify
+        # the original author so they know someone replied to them.
+        reply_to_author_id: int | None = None
+        reply_to_author_name: str | None = None
+        reply_to_message_id: int | None = None
+        reply_to_content: str | None = None
+        if message.reference and message.reference.message_id:
+            try:
+                replied_row = await database.get_message_by_placeholder(
+                    message.reference.message_id
+                )
+            except Exception as e:
+                print(f"[reply-lookup] DB error for ref {message.reference.message_id}: {e}")
+                replied_row = None
+            if replied_row:
+                reply_to_author_id = replied_row["author_id"]
+                reply_member = message.guild.get_member(reply_to_author_id)
+                reply_to_author_name = (
+                    reply_member.display_name if reply_member
+                    else str(reply_to_author_id)
+                )
+                reply_to_message_id = replied_row["id"]
+                raw = replied_row["message_json"].get("content", "").strip()
+                reply_to_content = (raw[:80] + "…") if len(raw) > 80 else raw
+
+        # Capture mentions before the message is deleted (exclude the bot itself)
+        bot_id = self.bot.user.id if self.bot.user else None
+        tagged_members = [m for m in message.mentions if m.id != bot_id]
         tagged_roles   = list(message.role_mentions)
 
         # Download any attachments before the message is deleted
@@ -65,10 +97,14 @@ class Listener(commands.Cog):
             channel_id=message.channel.id,
             author_id=message.author.id,
             message_data={
-                "content": _resolve_mentions(message),
+                "content": _resolve_mentions(message, bot_id=bot_id),
                 "original_message_id": str(message.id),
                 "author_name": message.author.display_name,
                 "attachments": [fn for fn, _ in attachment_bytes],
+                "reply_to_author_id": reply_to_author_id,
+                "reply_to_author_name": reply_to_author_name,
+                "reply_to_message_id": reply_to_message_id,
+                "reply_to_content": reply_to_content,
             },
         )
 
@@ -80,7 +116,8 @@ class Listener(commands.Cog):
                 with open(os.path.join(att_dir, filename), "wb") as fh:
                     fh.write(data)
 
-        # Delete the original
+        # Delete the original (small delay to let Discord process the message first)
+        await asyncio.sleep(0.5)
         try:
             await message.delete()
         except discord.Forbidden:
@@ -99,22 +136,37 @@ class Listener(commands.Cog):
             color=discord.Color.gold(),
         )
 
+        if reply_to_author_id:
+            embed.add_field(
+                name="↩ Reply to",
+                value=f"<@{reply_to_author_id}> · Message #{reply_to_message_id}",
+                inline=False,
+            )
+
         if tagged_members or tagged_roles:
             tagged_str = " ".join(
                 [m.mention for m in tagged_members]
                 + [r.mention for r in tagged_roles]
             )
+            # Embed field values are capped at 1024 chars — truncate on a word
+            # boundary so we never split a mention token in half.
+            if len(tagged_str) > 1024:
+                tagged_str = tagged_str[:1024].rsplit(" ", 1)[0] + " ..."
             embed.add_field(name="Tagged", value=tagged_str, inline=False)
 
         embed.set_footer(text=f"Message ID: {db_id}")
 
         view = ConfidentialView(db_id)
 
-        # Include raw mentions in content so Discord sends ping notifications
-        ping_content = " ".join(
-            [m.mention for m in tagged_members]
-            + [r.mention for r in tagged_roles]
-        ) or None
+        # Include raw mentions in content so Discord sends ping notifications.
+        # Always include the original author when this is a reply, so they're notified.
+        ping_parts = [m.mention for m in tagged_members] + [r.mention for r in tagged_roles]
+        if reply_to_author_id:
+            ping_parts.insert(0, f"<@{reply_to_author_id}>")
+        ping_content = " ".join(ping_parts) or None
+        # Message content is capped at 2000 chars — truncate on a word boundary.
+        if ping_content and len(ping_content) > 2000:
+            ping_content = ping_content[:2000].rsplit(" ", 1)[0] + " ..."
 
         placeholder = await message.channel.send(
             content=ping_content,

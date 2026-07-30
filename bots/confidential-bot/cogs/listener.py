@@ -7,13 +7,18 @@ import database
 from views.confidential import ConfidentialView
 
 
-def _resolve_mentions(message: discord.Message) -> str:
-    """Replace raw Discord mention tokens with human-readable names."""
+def _resolve_mentions(message: discord.Message, bot_id: int | None = None) -> str:
+    """Replace raw Discord mention tokens with human-readable names.
+    If bot_id is provided, bot mentions are stripped entirely."""
     content = message.content
 
     for member in message.mentions:
-        content = content.replace(f"<@{member.id}>",  f"@{member.display_name}")
-        content = content.replace(f"<@!{member.id}>", f"@{member.display_name}")
+        if bot_id and member.id == bot_id:
+            # Remove the bot mention token (and any surrounding whitespace)
+            content = content.replace(f"<@{member.id}>", "").replace(f"<@!{member.id}>", "")
+        else:
+            content = content.replace(f"<@{member.id}>",  f"@{member.display_name}")
+            content = content.replace(f"<@!{member.id}>", f"@{member.display_name}")
 
     for role in message.role_mentions:
         content = content.replace(f"<@&{role.id}>", f"@{role.name}")
@@ -21,7 +26,7 @@ def _resolve_mentions(message: discord.Message) -> str:
     for channel in message.channel_mentions:
         content = content.replace(f"<#{channel.id}>", f"#{channel.name}")
 
-    return content
+    return content.strip()
 
 
 class Listener(commands.Cog):
@@ -72,8 +77,8 @@ class Listener(commands.Cog):
                 raw = replied_row["message_json"].get("content", "").strip()
                 reply_to_content = (raw[:80] + "…") if len(raw) > 80 else raw
 
-        # Capture mentions before the message is deleted
-        tagged_members = list(message.mentions)
+        # Capture mentions before the message is deleted (exclude the bot itself)
+        tagged_members = [m for m in message.mentions if m.id != self.bot.user.id]
         tagged_roles   = list(message.role_mentions)
 
         # Download any attachments before the message is deleted
@@ -90,7 +95,7 @@ class Listener(commands.Cog):
             channel_id=message.channel.id,
             author_id=message.author.id,
             message_data={
-                "content": _resolve_mentions(message),
+                "content": _resolve_mentions(message, bot_id=self.bot.user.id),
                 "original_message_id": str(message.id),
                 "author_name": message.author.display_name,
                 "attachments": [fn for fn, _ in attachment_bytes],
